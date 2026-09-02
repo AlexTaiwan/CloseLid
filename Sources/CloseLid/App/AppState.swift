@@ -12,13 +12,14 @@ final class AppState {
             privileged: OsascriptPrivilegedRunner(shell: shell),
             assertion: IOPMSleepAssertion()
         )
-        return AppState(controller: controller, defaults: .standard, username: NSUserName())
+        return AppState(controller: controller, defaults: .standard, username: NSUserName(), loginItem: SMAppServiceLoginItem())
     }()
 
     // MARK: Observable state
     private(set) var mode: PowerMode = .unknown
     private(set) var powerSource: PowerSource = .unknown
     private(set) var helperInstalled = false
+    private(set) var launchAtLogin: LoginItemStatus = .disabled
     var lastError: String?
 
     /// Shows a native alert for failures of user-initiated actions. Injected so tests
@@ -35,16 +36,18 @@ final class AppState {
     private let controller: PowerController
     private let defaults: UserDefaults
     private let username: String
+    private let loginItem: LoginItemManaging
     private var refreshTimer: Timer?
     /// True while `lastError` holds a message written by a failed `refreshPowerOnly`.
     /// Spec §6/§7: a later successful background read clears a probe-origin error row,
     /// but errors from user actions persist until the next successful action.
     private var lastErrorIsFromProbe = false
 
-    init(controller: PowerController, defaults: UserDefaults, username: String) {
+    init(controller: PowerController, defaults: UserDefaults, username: String, loginItem: LoginItemManaging) {
         self.controller = controller
         self.defaults = defaults
         self.username = username
+        self.loginItem = loginItem
         self.stayAwakeAfterQuit = defaults.bool(forKey: Self.stayAwakeKey)
     }
 
@@ -66,6 +69,7 @@ final class AppState {
     func refresh() {
         refreshPowerOnly()
         helperInstalled = controller.isHelperInstalled()
+        launchAtLogin = loginItem.status
     }
 
     /// Re-reads `pmset -g` / `pmset -g batt` only.
@@ -132,8 +136,20 @@ final class AppState {
         refresh()
     }
 
+    /// User action. Approval-required is a normal outcome, not a failure.
+    func setLaunchAtLogin(_ on: Bool) {
+        do {
+            try loginItem.setEnabled(on)
+            lastError = nil
+        } catch {
+            fail(Self.loginItemAlertTitle, with: error)
+        }
+        launchAtLogin = loginItem.status
+    }
+
     private static let toggleAlertTitle = "CloseLid could not change the sleep setting."
     private static let ruleAlertTitle = "CloseLid could not update the sudoers rule."
+    private static let loginItemAlertTitle = "CloseLid could not change the login item."
 
     /// Records the error for the menu and raises the alert. User-initiated paths only.
     private func fail(_ title: String, with error: Error) {

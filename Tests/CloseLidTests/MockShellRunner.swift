@@ -45,3 +45,16 @@ final class MockSleepAssertion: SleepAssertionHolding {
     func acquire() { acquireCount += 1; isHeld = true }
     func release() { releaseCount += 1; isHeld = false }
 }
+
+final class MockLoginItem: LoginItemManaging {
+    var status: LoginItemStatus = .disabled
+    var error: Error?
+    /// If set, `setEnabled(true)` leaves status at `.requiresApproval` instead of `.enabled`.
+    var needsApproval = false
+    private(set) var calls: [Bool] = []
+    func setEnabled(_ on: Bool) throws {
+        calls.append(on)
+        if let error { throw error }
+        status = on ? (needsApproval ? .requiresApproval : .enabled) : .disabled
+    }
+}

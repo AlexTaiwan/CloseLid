@@ -20,6 +20,7 @@ power-management flag `pmset -a disablesleep 1`. This app flips exactly that fla
 ```sh
 scripts/build.sh          # produces build/CloseLid.app
 open build/CloseLid.app
+cp -R build/CloseLid.app /Applications/   # recommended: a stable path for Launch at Login
 ```
 
 ## First run: install the sudoers rule (one admin password, once)
@@ -42,6 +43,7 @@ Menu → **Install Sudoers Rule…** → enter your password in the system dialo
 |---|---|
 | Keep Awake with Lid Closed | Checkmark item; click to toggle. The menu bar icon is a laptop normally and a coffee cup while awake. A laptop with a warning badge means the app could not read the sleep setting. |
 | On AC power / On battery — … | Power source. On battery, Keep Awake runs the Mac down to empty, so the line says so in both states. |
+| Launch at Login | Registers the app as a macOS login item. If macOS asks for approval, a line under the item points you to System Settings › Login Items. Keep the app in /Applications so the registered path stays valid. |
 | Stay Awake After Quit | By default quitting the app restores normal sleep. Tick this to leave the flag on. |
 | Remove Sudoers Rule… | Restores normal sleep and deletes `/etc/sudoers.d/closelid`. The password dialog tells you when this will also switch you back to normal sleep. |
 

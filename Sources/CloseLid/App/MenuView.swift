@@ -11,6 +11,8 @@ import SwiftUI
 ///   ─────
 ///   On AC power | On battery — Keep Awake will run it down to empty | Power source unknown
 ///   ─────
+///   Launch at Login                                Toggle
+///   Approve CloseLid under System Settings › Login Items   (disabled; requiresApproval only)
 ///   Stay Awake After Quit                          Toggle
 ///   Remove Sudoers Rule…                           (rule installed only)
 ///   ─────
@@ -43,6 +45,13 @@ struct MenuView: View {
 
         Divider()
 
+        Toggle("Launch at Login", isOn: Binding(
+            get: { state.launchAtLogin == .enabled },
+            set: { state.setLaunchAtLogin($0) }
+        ))
+        if state.launchAtLogin == .requiresApproval {
+            Text("Approve CloseLid under System Settings › Login Items")
+        }
         Toggle("Stay Awake After Quit", isOn: $state.stayAwakeAfterQuit)
         if state.helperInstalled {
             Button("Remove Sudoers Rule…", action: state.removeHelper)

@@ -7,6 +7,7 @@ final class AppStateTests: XCTestCase {
     var privileged: MockPrivilegedRunner!
     var assertion: MockSleepAssertion!
     var defaults: UserDefaults!
+    var loginItem: MockLoginItem!
     var sut: AppState!
     var alerts: [(title: String, message: String)] = []
 
@@ -19,9 +20,10 @@ final class AppStateTests: XCTestCase {
         privileged = MockPrivilegedRunner()
         assertion = MockSleepAssertion()
         defaults = UserDefaults(suiteName: "CloseLidTests.\(UUID().uuidString)")!
+        loginItem = MockLoginItem()
         alerts = []
         let controller = PowerController(shell: shell, privileged: privileged, assertion: assertion)
-        sut = AppState(controller: controller, defaults: defaults, username: "alexwang")
+        sut = AppState(controller: controller, defaults: defaults, username: "alexwang", loginItem: loginItem)
         sut.alertPresenter = { [unowned self] title, message in self.alerts.append((title, message)) }
     }
 
@@ -38,6 +40,45 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(sut.powerSource, .ac)
         XCTAssertTrue(sut.helperInstalled)
         XCTAssertNil(sut.lastError)
+    }
+
+    func testRefreshReadsLoginItemStatus() {
+        loginItem.status = .enabled
+        enqueueProbe(settingsNormal); shell.enqueue(PowerCommand.probeHelper, status: 0)
+        sut.refresh()
+        XCTAssertEqual(sut.launchAtLogin, .enabled)
+    }
+
+    func testSetLaunchAtLoginOnRegistersAndReadsBack() {
+        sut.setLaunchAtLogin(true)
+        XCTAssertEqual(loginItem.calls, [true])
+        XCTAssertEqual(sut.launchAtLogin, .enabled)
+        XCTAssertNil(sut.lastError)
+        XCTAssertTrue(alerts.isEmpty)
+    }
+
+    func testSetLaunchAtLoginOffUnregisters() {
+        loginItem.status = .enabled
+        sut.setLaunchAtLogin(false)
+        XCTAssertEqual(loginItem.calls, [false])
+        XCTAssertEqual(sut.launchAtLogin, .disabled)
+    }
+
+    func testSetLaunchAtLoginNeedingApprovalIsNotAnError() {
+        loginItem.needsApproval = true
+        sut.setLaunchAtLogin(true)
+        XCTAssertEqual(sut.launchAtLogin, .requiresApproval)
+        XCTAssertNil(sut.lastError)
+        XCTAssertTrue(alerts.isEmpty, "approval is a normal macOS step, not a failure")
+    }
+
+    func testSetLaunchAtLoginFailureAlertsAndKeepsRealStatus() {
+        struct Boom: Error {}
+        loginItem.error = Boom()
+        sut.setLaunchAtLogin(true)
+        XCTAssertEqual(sut.launchAtLogin, .disabled)
+        XCTAssertNotNil(sut.lastError)
+        XCTAssertEqual(alerts.map { $0.title }, ["CloseLid could not change the login item."])
     }
 
     // Trace for toggle(): setSleepDisabled(x) → probe pair (inside the controller) → apply.
