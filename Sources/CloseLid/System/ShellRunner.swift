@@ -24,9 +24,18 @@ struct ProcessShellRunner: ShellRunning {
         process.standardError = err
         process.standardInput = FileHandle.nullDevice
         try process.run()
-        // Read both pipes fully before waiting, so a chatty child cannot deadlock on a full pipe.
+        // Drain both pipes concurrently. Reading them one after the other can deadlock:
+        // a child that fills the stderr pipe before closing stdout blocks on write while
+        // we block reading stdout.
+        var errData = Data()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            errData = err.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
         let outData = out.fileHandleForReading.readDataToEndOfFile()
-        let errData = err.fileHandleForReading.readDataToEndOfFile()
+        group.wait()
         process.waitUntilExit()
         return ShellResult(
             status: process.terminationStatus,

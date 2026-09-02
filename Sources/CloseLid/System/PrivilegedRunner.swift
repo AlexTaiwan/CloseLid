@@ -23,8 +23,12 @@ struct OsascriptPrivilegedRunner: PrivilegedRunning {
     func runAsRoot(script: String, prompt: String) throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("closelid-\(UUID().uuidString).sh")
-        try script.write(to: url, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        // Create with 0700 in one step so the file never exists with umask-default
+        // permissions, and register cleanup before anything else can throw.
+        guard FileManager.default.createFile(atPath: url.path, contents: Data(script.utf8),
+                                             attributes: [.posixPermissions: 0o700]) else {
+            throw PrivilegedError.failed("could not create temporary script at \(url.path)")
+        }
         defer { try? FileManager.default.removeItem(at: url) }
 
         // temporaryDirectory paths never contain single quotes, so this quoting is safe.

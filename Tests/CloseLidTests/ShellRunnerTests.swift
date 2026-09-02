@@ -19,6 +19,14 @@ final class ShellRunnerTests: XCTestCase {
         XCTAssertThrowsError(try ProcessShellRunner().run(["/nonexistent/binary"]))
     }
 
+    func testProcessRunnerDoesNotDeadlockWhenChildFillsStderrBeforeClosingStdout() throws {
+        // 200 KB on stderr (well past the 64 KB pipe buffer) before anything on stdout.
+        let result = try ProcessShellRunner().run(["/bin/sh", "-c", "yes e | head -c 200000 1>&2; echo done"])
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(result.stdout, "done\n")
+        XCTAssertEqual(result.stderr.count, 200000)
+    }
+
     func testOsascriptRunnerWritesScriptFileAndInvokesOsascriptWithAdminPrivileges() throws {
         var captured: [String]?
         // We cannot enqueue by exact argv because the temp path is random, so use a
@@ -74,6 +82,8 @@ final class ShellRunnerTests: XCTestCase {
             let end = s.range(of: "'\" with")!.lowerBound
             scriptPath = String(s[start..<end])
             XCTAssertTrue(FileManager.default.fileExists(atPath: scriptPath!), "script must exist while osascript runs")
+            let mode = (try? FileManager.default.attributesOfItem(atPath: scriptPath!)[.posixPermissions] as? Int) ?? -1
+            XCTAssertEqual(mode, 0o700, "script must be private to the user")
             return ShellResult(status: 0, stdout: "", stderr: "")
         }
         try OsascriptPrivilegedRunner(shell: recorder).runAsRoot(script: "set -eu\n", prompt: "p")
