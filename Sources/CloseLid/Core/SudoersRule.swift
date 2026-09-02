@@ -11,7 +11,9 @@ enum SudoersRule {
     /// Conservative POSIX-style username: starts with a letter or underscore,
     /// then letters/digits/`_`/`.`/`-`, max 32 chars. Anything else is refused so a
     /// crafted username can never inject extra sudoers grammar.
-    private static let usernamePattern = #"^[A-Za-z_][A-Za-z0-9_.\-]{0,31}$"#
+    /// `\z` (absolute end), not `$`: in ICU `$` also matches before a trailing line
+    /// terminator, which would let "alex\n" through.
+    private static let usernamePattern = #"^[A-Za-z_][A-Za-z0-9_.\-]{0,31}\z"#
 
     static func render(username: String) throws -> String {
         guard username.range(of: usernamePattern, options: .regularExpression) != nil,

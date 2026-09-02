@@ -28,7 +28,7 @@ final class SudoersRuleTests: XCTestCase {
     }
 
     func testRejectsDangerousUsernames() {
-        for name in ["", "alex wang", "alex\nALL=(ALL) NOPASSWD: ALL", "alex,root", "9alex", "alex/", "a\tb", "ALL"] {
+        for name in ["", "alex wang", "alex\nALL=(ALL) NOPASSWD: ALL", "alex\n", "alex\r\n", "alex\u{2028}", "alex,root", "9alex", "alex/", "a\tb", "ALL"] {
             XCTAssertThrowsError(try SudoersRule.render(username: name), name) { error in
                 XCTAssertEqual(error as? SudoersRule.Error, .invalidUsername(name))
             }
