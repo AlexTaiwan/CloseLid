@@ -27,32 +27,82 @@ final class ShellRunnerTests: XCTestCase {
         XCTAssertEqual(result.stderr.count, 200000)
     }
 
-    func testOsascriptRunnerWritesScriptFileAndInvokesOsascriptWithAdminPrivileges() throws {
+    // The script is inlined into the AppleScript literal, never written to a file: a
+    // user-owned temp file would be read by root only after the password dialog is
+    // dismissed, giving any same-UID process a window to rewrite it.
+    func testOsascriptRunnerInlinesTheScriptIntoTheAppleScriptLiteral() throws {
         var captured: [String]?
-        // We cannot enqueue by exact argv because the temp path is random, so use a
-        // permissive runner that records what it was asked to do.
         let recorder = RecordingShellRunner { argv in
             captured = argv
             return ShellResult(status: 0, stdout: "", stderr: "")
         }
-        try OsascriptPrivilegedRunner(shell: recorder).runAsRoot(script: "set -eu\n/bin/echo hi\n", prompt: "CloseLid needs your password.")
+        let script = "set -eu\nTMP=\"$(/usr/bin/mktemp)\"\n/bin/echo back\\slash\n"
+        try OsascriptPrivilegedRunner(shell: recorder)
+            .runAsRoot(script: script, prompt: "CloseLid needs your password.")
 
-        let argv = try XCTUnwrap(captured)
-        XCTAssertEqual(argv[0], "/usr/bin/osascript")
-        XCTAssertEqual(argv[1], "-e")
-        XCTAssertTrue(argv[2].hasPrefix("do shell script \"/bin/sh '"))
-        XCTAssertTrue(argv[2].hasSuffix("'\" with administrator privileges with prompt \"CloseLid needs your password.\""))
+        XCTAssertEqual(captured, [
+            "/usr/bin/osascript",
+            "-e",
+            #"do shell script "set -eu\nTMP=\"$(/usr/bin/mktemp)\"\n/bin/echo back\\slash\n""#
+                + #" with administrator privileges with prompt "CloseLid needs your password.""#,
+        ])
     }
 
-    func testOsascriptRunnerEscapesQuotesAndBackslashesInPrompt() throws {
+    func testOsascriptRunnerWritesNoTemporaryScriptFile() throws {
+        let temp = FileManager.default.temporaryDirectory
+        func closelidFiles() -> [String] {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: temp.path)) ?? []
+            return names.filter { $0.hasPrefix("closelid-") }
+        }
+        let before = closelidFiles()
+
+        let recorder = RecordingShellRunner { _ in
+            XCTAssertEqual(closelidFiles(), before, "no script file may exist while osascript runs")
+            return ShellResult(status: 0, stdout: "", stderr: "")
+        }
+        try OsascriptPrivilegedRunner(shell: recorder).runAsRoot(script: "set -eu\n/bin/echo hi\n", prompt: "p")
+        XCTAssertEqual(closelidFiles(), before)
+    }
+
+    func testEscapeForAppleScriptHandlesBackslashQuoteAndLineBreaks() {
+        XCTAssertEqual(OsascriptPrivilegedRunner.escapeForAppleScript("a\\b"), #"a\\b"#)
+        XCTAssertEqual(OsascriptPrivilegedRunner.escapeForAppleScript("say \"hi\""), #"say \"hi\""#)
+        XCTAssertEqual(OsascriptPrivilegedRunner.escapeForAppleScript("one\ntwo"), #"one\ntwo"#)
+        XCTAssertEqual(OsascriptPrivilegedRunner.escapeForAppleScript("one\r\ntwo"), #"one\r\ntwo"#)
+        // Backslash first: a literal \n in the input must not become a line break.
+        XCTAssertEqual(OsascriptPrivilegedRunner.escapeForAppleScript(#"a\nb"#), #"a\\nb"#)
+    }
+
+    func testOsascriptRunnerEscapesQuotesBackslashesAndLineBreaksInPrompt() throws {
         var captured: [String]?
         let recorder = RecordingShellRunner { argv in
             captured = argv
             return ShellResult(status: 0, stdout: "", stderr: "")
         }
-        try OsascriptPrivilegedRunner(shell: recorder).runAsRoot(script: "set -eu\n", prompt: #"say "hi" \ bye"#)
+        try OsascriptPrivilegedRunner(shell: recorder)
+            .runAsRoot(script: "set -eu\n", prompt: "say \"hi\" \\ bye\r\nnow")
         let argv = try XCTUnwrap(captured)
-        XCTAssertTrue(argv[2].hasSuffix(#"with prompt "say \"hi\" \\ bye""#))
+        XCTAssertTrue(argv[2].hasSuffix(#"with prompt "say \"hi\" \\ bye\r\nnow""#), argv[2])
+    }
+
+    // End-to-end through the real osascript, without `with administrator privileges`
+    // so no password dialog appears. Proves an inlined multi-line script actually runs:
+    // all three commands execute and the quoted heredoc is not expanded.
+    func testEscapedMultiLineScriptExecutesThroughRealOsascript() throws {
+        let script = """
+        TMP="$(/bin/echo alpha)"
+        /bin/echo "$TMP"
+        /bin/cat <<'CLOSELID_RULE'
+        $TMP
+        CLOSELID_RULE
+        /bin/echo done
+        """
+        let literal = "do shell script \"\(OsascriptPrivilegedRunner.escapeForAppleScript(script))\""
+        let result = try ProcessShellRunner().run(["/usr/bin/osascript", "-e", literal])
+        XCTAssertEqual(result.status, 0, result.stderr)
+        // AppleScript's own line ending is CR, so osascript prints the multi-line result
+        // with CR separators and a single trailing LF.
+        XCTAssertEqual(result.stdout, "alpha\r$TMP\rdone\n")
     }
 
     func testOsascriptRunnerMapsUserCancelToCancelledError() {
@@ -71,23 +121,6 @@ final class ShellRunnerTests: XCTestCase {
         XCTAssertThrowsError(try OsascriptPrivilegedRunner(shell: recorder).runAsRoot(script: "set -eu\n", prompt: "p")) { error in
             XCTAssertEqual(error as? PrivilegedError, .failed("visudo: parse error\n"))
         }
-    }
-
-    func testOsascriptRunnerRemovesTempScriptAfterwards() throws {
-        var scriptPath: String?
-        let recorder = RecordingShellRunner { argv in
-            // extract path between /bin/sh ' and '
-            let s = argv[2]
-            let start = s.range(of: "/bin/sh '")!.upperBound
-            let end = s.range(of: "'\" with")!.lowerBound
-            scriptPath = String(s[start..<end])
-            XCTAssertTrue(FileManager.default.fileExists(atPath: scriptPath!), "script must exist while osascript runs")
-            let mode = (try? FileManager.default.attributesOfItem(atPath: scriptPath!)[.posixPermissions] as? Int) ?? -1
-            XCTAssertEqual(mode, 0o700, "script must be private to the user")
-            return ShellResult(status: 0, stdout: "", stderr: "")
-        }
-        try OsascriptPrivilegedRunner(shell: recorder).runAsRoot(script: "set -eu\n", prompt: "p")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: try XCTUnwrap(scriptPath)))
     }
 
     func testIOPMAssertionAcquireReleaseIsIdempotent() {

@@ -91,9 +91,9 @@ privileges` running a single shell command):
 2. Validate with `visudo -c -f <tmp>`; abort on failure.
 3. `install -m 0440 -o root -g wheel <tmp> /etc/sudoers.d/closelid`.
 
-**Remove flow**: `rm -f /etc/sudoers.d/closelid` (also privileged prompt), then
-revert `disablesleep` to 0 first so the machine is never left stuck awake without
-a way to switch back silently.
+**Remove flow** (privileged prompt): revert `disablesleep` to 0 first, then
+`rm -f /etc/sudoers.d/closelid`, under `set -eu` so a failed revert leaves the
+rule in place; the machine is never left stuck awake without a silent way back.
 
 **Helper detection**: `sudo -n -l /usr/bin/pmset -a disablesleep 1` exits 0 when
 the rule is present. The menu shows "Install helper…" until it is.
@@ -120,7 +120,10 @@ CloseLid.app (SwiftUI, MenuBarExtra, LSUIElement)
 │       ProcessShellRunner      real implementation using Foundation.Process
 │       PrivilegedRunner.swift  runs a shell script via osascript "with administrator privileges
 │                               with prompt <sentence naming CloseLid>" so the password dialog is
-│                               not attributed to "osascript"
+│                               not attributed to "osascript". The script text is inlined into the
+│                               AppleScript literal (escaped), never written to a user-owned temp
+│                               file: root must not execute anything the user could rewrite while
+│                               the password dialog is open.
 │       PowerController.swift   orchestrates: probe state, toggle, install/remove helper,
 │                               holds an IOPMAssertion while Awake (belt-and-braces vs idle sleep)
 │       (power source is read from `pmset -g batt` on every refresh; no IOKit monitor)
@@ -147,8 +150,9 @@ CloseLid.app (SwiftUI, MenuBarExtra, LSUIElement)
 app just started, that is a leftover from a crash or a "stay awake after quit"
 choice; show it as Awake (truthfully) and let the user decide.
 
-**Quit**: `NSApplication.willTerminate` → `QuitPolicy` → if revert, run
-`disablesleep 0` synchronously before exit. Also handled for `SIGTERM` via a
+**Quit**: `NSApplication.willTerminate` → fresh `pmset -g` read → `QuitPolicy` →
+if revert, run `disablesleep 0` synchronously before exit. The decision never
+comes from cached state. Also handled for `SIGTERM` via a
 signal source so a Force Quit from Activity Monitor still reverts. Kernel
 panics / power loss cannot be handled; the launch reconciliation covers those.
 
@@ -239,7 +243,7 @@ otherwise attributed to "osascript":
 | `visudo -c` fails | Abort install, show error, leave `/etc/sudoers.d` untouched. |
 | User cancels admin prompt | Silent no-op. |
 | Any other failure of a user-initiated action (toggle, install, remove) | Native `NSAlert` (activate app first, next run-loop turn) with the reason, plus the same text as the first menu row. The 20 s background refresh never alerts. |
-| `pmset -g` output unparseable | Treat as unknown; icon shows a "?" state, toggle disabled, log the raw text. |
+| `pmset -g` output unparseable | Treat as unknown; badged icon, toggle disabled, raw text logged via `os.Logger` (subsystem `com.alexwang.CloseLid`). A later successful background read clears a probe-origin error row; user-action errors persist until the next successful action. |
 | Toggle succeeded but read-back disagrees | Show read-back value; log discrepancy. Never trust the write. |
 | On battery | Allowed. The power line reads "On battery — Keep Awake will run it down to empty" in both modes, so the consequence is visible before enabling. No modal. |
 

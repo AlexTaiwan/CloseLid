@@ -12,27 +12,23 @@ protocol PrivilegedRunning {
     func runAsRoot(script: String, prompt: String) throws
 }
 
-/// Writes the script to a private temp file and runs it through AppleScript's
-/// `do shell script … with administrator privileges`, which shows the standard
-/// macOS authentication dialog. Writing to a file avoids any AppleScript string escaping.
+/// Runs the script through AppleScript's `do shell script … with administrator
+/// privileges`, which shows the standard macOS authentication dialog.
+///
+/// The script text is inlined into the AppleScript literal rather than written to a
+/// temp file. A user-owned file would be opened by root only *after* the password
+/// dialog is dismissed, so any process running as the same user could rewrite it in
+/// the meantime and get arbitrary root. An inlined literal is fixed at the moment the
+/// argument vector is built and cannot be changed afterwards.
 struct OsascriptPrivilegedRunner: PrivilegedRunning {
     let shell: ShellRunning
 
     init(shell: ShellRunning) { self.shell = shell }
 
     func runAsRoot(script: String, prompt: String) throws {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("closelid-\(UUID().uuidString).sh")
-        // Create with 0700 in one step so the file never exists with umask-default
-        // permissions, and register cleanup before anything else can throw.
-        guard FileManager.default.createFile(atPath: url.path, contents: Data(script.utf8),
-                                             attributes: [.posixPermissions: 0o700]) else {
-            throw PrivilegedError.failed("could not create temporary script at \(url.path)")
-        }
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        // temporaryDirectory paths never contain single quotes, so this quoting is safe.
-        let appleScript = "do shell script \"/bin/sh '\(url.path)'\" with administrator privileges with prompt \"\(Self.escapeForAppleScript(prompt))\""
+        let appleScript = "do shell script \"\(Self.escapeForAppleScript(script))\""
+            + " with administrator privileges"
+            + " with prompt \"\(Self.escapeForAppleScript(prompt))\""
         let result = try shell.run(["/usr/bin/osascript", "-e", appleScript])
         guard result.status == 0 else {
             if result.stderr.contains("(-128)") { throw PrivilegedError.cancelled }
@@ -40,9 +36,14 @@ struct OsascriptPrivilegedRunner: PrivilegedRunning {
         }
     }
 
-    /// AppleScript string literals escape only backslash and double quote.
+    /// Escapes text for an AppleScript string literal. Backslash must come first, or
+    /// the backslashes introduced by the later replacements would be escaped again.
+    /// `\n` and `\r` are the escapes AppleScript understands for line breaks; a raw
+    /// newline inside a literal is a syntax error.
     static func escapeForAppleScript(_ text: String) -> String {
         text.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
     }
 }

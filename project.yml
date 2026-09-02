@@ -6,6 +6,7 @@ options:
   createIntermediateGroups: true
 settings:
   base:
+    # Swift 5 language mode on purpose: strict-concurrency migration is a tracked follow-up
     SWIFT_VERSION: "5.0"
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
