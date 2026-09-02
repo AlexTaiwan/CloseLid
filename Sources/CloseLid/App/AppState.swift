@@ -140,7 +140,7 @@ final class AppState {
     func setLaunchAtLogin(_ on: Bool) {
         do {
             try loginItem.setEnabled(on)
-            lastError = nil
+            clearError()
         } catch {
             fail(Self.loginItemAlertTitle, with: error)
         }
