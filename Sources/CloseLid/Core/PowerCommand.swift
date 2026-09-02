@@ -36,9 +36,11 @@ enum PowerCommand {
     }
 
     /// Shell script executed as root at removal. Reverts sleep first so the machine
-    /// is never left stuck awake with no silent way back.
+    /// is never left stuck awake with no silent way back. `-e` matters: if the revert
+    /// fails the script must abort before deleting the rule, because the rule is the
+    /// only way the app can still switch sleep back on without another password.
     static let removeHelperScript = """
-    set -u
+    set -eu
     \(pmsetPath) -a disablesleep 0
     /bin/rm -f \(SudoersRule.path)
     """

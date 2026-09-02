@@ -36,6 +36,10 @@ final class AppState {
     private let defaults: UserDefaults
     private let username: String
     private var refreshTimer: Timer?
+    /// True while `lastError` holds a message written by a failed `refreshPowerOnly`.
+    /// Spec §6/§7: a later successful background read clears a probe-origin error row,
+    /// but errors from user actions persist until the next successful action.
+    private var lastErrorIsFromProbe = false
 
     init(controller: PowerController, defaults: UserDefaults, username: String) {
         self.controller = controller
@@ -68,9 +72,13 @@ final class AppState {
     func refreshPowerOnly() {
         do {
             apply(try controller.probe())
+            // Only a message this method wrote may be cleared here; a toggle or install
+            // failure must stay on the menu until the next successful user action.
+            if lastErrorIsFromProbe { clearError() }
         } catch {
             mode = .unknown
             lastError = "Could not read power settings: \(error.localizedDescription)"
+            lastErrorIsFromProbe = true
         }
     }
 
@@ -84,7 +92,7 @@ final class AppState {
         do {
             // setSleepDisabled already re-probed and verified; use that snapshot directly.
             apply(try controller.setSleepDisabled(target))
-            lastError = nil
+            clearError()
         } catch PowerError.helperNotInstalled {
             // The controller already ran `sudo -n -l` and found no rule.
             helperInstalled = false
@@ -103,7 +111,7 @@ final class AppState {
     func installHelper() {
         do {
             try controller.installHelper(username: username)
-            lastError = nil
+            clearError()
         } catch PowerError.cancelled {
             // user dismissed the password dialog; nothing to report
         } catch {
@@ -115,7 +123,7 @@ final class AppState {
     func removeHelper() {
         do {
             try controller.removeHelper(currentlyAwake: mode == .awake)
-            lastError = nil
+            clearError()
         } catch PowerError.cancelled {
             // silent
         } catch {
@@ -131,12 +139,22 @@ final class AppState {
     private func fail(_ title: String, with error: Error) {
         let message = Self.message(for: error)
         lastError = message
+        lastErrorIsFromProbe = false
         alertPresenter(title, message)
+    }
+
+    private func clearError() {
+        lastError = nil
+        lastErrorIsFromProbe = false
     }
 
     /// Synchronous on purpose: called from applicationWillTerminate / SIGTERM.
     func prepareForQuit() {
         refreshTimer?.invalidate()
+        // Decide from a fresh read, never from `mode`: it can be up to one tick stale,
+        // or `.unknown` after a tick that happened to fail, and either would skip the
+        // revert and leave the Mac awake with the lid closed.
+        refreshPowerOnly()
         let sleepDisabled: Bool? = (mode == .awake) ? true : (mode == .normal ? false : nil)
         guard QuitPolicy.shouldRevertOnQuit(sleepDisabled: sleepDisabled, stayAwakeAfterQuit: stayAwakeAfterQuit) else { return }
         _ = try? controller.setSleepDisabled(false)

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum PowerError: Error, Equatable {
     case helperNotInstalled
@@ -10,6 +11,10 @@ enum PowerError: Error, Equatable {
 /// Orchestrates every interaction with the system. Rule: after any write, re-read
 /// `pmset -g` and report *that*; never assume the write succeeded.
 final class PowerController {
+    /// Spec §7: the two states a user would file a bug about must leave a trace.
+    /// Read with `log show --predicate 'subsystem == "com.alexwang.CloseLid"'`.
+    private static let log = Logger(subsystem: "com.alexwang.CloseLid", category: "power")
+
     private let shell: ShellRunning
     private let privileged: PrivilegedRunning
     private let assertion: SleepAssertionHolding
@@ -24,8 +29,14 @@ final class PowerController {
     func probe() throws -> PmsetSnapshot {
         let settings = try shell.run(PowerCommand.probeSettings)
         let battery = try shell.run(PowerCommand.probeBattery)
+        let sleepDisabled = PmsetParser.sleepDisabled(fromSettings: settings.stdout)
+        if sleepDisabled == nil {
+            // Public on purpose: pmset -g output holds no personal data and the raw
+            // text is the only way to diagnose a parser miss from a user's log.
+            Self.log.error("pmset -g output not parseable; raw text: \(settings.stdout, privacy: .public)")
+        }
         let snapshot = PmsetSnapshot(
-            sleepDisabled: PmsetParser.sleepDisabled(fromSettings: settings.stdout),
+            sleepDisabled: sleepDisabled,
             powerSource: PmsetParser.powerSource(fromBattery: battery.stdout)
         )
         syncAssertion(to: snapshot.sleepDisabled)
@@ -46,6 +57,8 @@ final class PowerController {
         }
         let snapshot = try probe()
         guard snapshot.sleepDisabled == enabled else {
+            let actual = snapshot.sleepDisabled.map(String.init(describing:)) ?? "unknown"
+            Self.log.error("read-back mismatch: wrote disablesleep \(enabled ? "1" : "0", privacy: .public), read back \(actual, privacy: .public)")
             throw PowerError.readBackMismatch(expected: enabled, actual: snapshot.sleepDisabled)
         }
         return snapshot

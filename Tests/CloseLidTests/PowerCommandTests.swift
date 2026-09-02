@@ -48,7 +48,8 @@ final class PowerCommandTests: XCTestCase {
 
     func testRemoveScriptRevertsSleepThenDeletesRule() {
         let lines = PowerCommand.removeHelperScript.split(separator: "\n").map(String.init)
-        XCTAssertEqual(lines.first, "set -u")
+        // -e, not just -u: a failed revert must abort before the rule is deleted.
+        XCTAssertEqual(lines.first, "set -eu")
         let revert = lines.firstIndex(of: "/usr/bin/pmset -a disablesleep 0")
         let remove = lines.firstIndex(of: "/bin/rm -f /etc/sudoers.d/closelid")
         XCTAssertNotNil(revert)

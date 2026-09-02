@@ -87,6 +87,33 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(alerts.isEmpty, "background refresh must stay silent")
     }
 
+    // Spec §7: a probe-origin error row is cleared by the next successful background read.
+    func testSuccessfulProbeClearsAnErrorLeftByAFailedProbe() {
+        shell.enqueue(PowerCommand.probeSettings, status: 1, stderr: "boom")
+        sut.refreshPowerOnly()
+        XCTAssertNotNil(sut.lastError)
+        enqueueProbe(settingsNormal)
+        sut.refreshPowerOnly()
+        XCTAssertEqual(sut.mode, .normal)
+        XCTAssertNil(sut.lastError, "a transient tick failure must not stick")
+    }
+
+    // Spec §6: errors from user actions persist until the next successful action, so a
+    // background tick must not wipe them.
+    func testSuccessfulProbeKeepsAnErrorLeftByAFailedToggle() {
+        enqueueProbe(settingsNormal); shell.enqueue(PowerCommand.probeHelper, status: 0)
+        sut.refresh()
+        shell.enqueue(PowerCommand.setSleepDisabled(true), status: 1, stderr: "sudo: a password is required\n")
+        shell.enqueue(PowerCommand.probeHelper, status: 1)
+        sut.toggle()
+        let toggleError = sut.lastError
+        XCTAssertNotNil(toggleError)
+
+        enqueueProbe(settingsNormal)
+        sut.refreshPowerOnly()
+        XCTAssertEqual(sut.lastError, toggleError, "a 20 s tick must not clear a user-action error")
+    }
+
     // Trace: sudo ok → read-back probe says still normal → readBackMismatch → refreshPowerOnly (one more probe pair).
     func testToggleReadBackMismatchShowsErrorAndRefreshes() {
         enqueueProbe(settingsNormal); shell.enqueue(PowerCommand.probeHelper, status: 0)
@@ -115,11 +142,14 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "stayAwakeAfterQuit"))
     }
 
+    // Trace for prepareForQuit(): fresh probe pair → decide → sudo → read-back probe pair.
+    // The mock keys queues by argv, so the fresh read must be enqueued before the read-back.
     func testPrepareForQuitRevertsWhenAwakeAndNotOptedOut() {
         enqueueProbe(settingsAwake); shell.enqueue(PowerCommand.probeHelper, status: 0)
         sut.refresh()
+        enqueueProbe(settingsAwake)     // fresh read at the top of prepareForQuit
         shell.enqueue(PowerCommand.setSleepDisabled(false), status: 0)
-        enqueueProbe(settingsNormal)
+        enqueueProbe(settingsNormal)    // read-back inside the controller
         sut.prepareForQuit()
         XCTAssertTrue(shell.calls.contains(PowerCommand.setSleepDisabled(false)))
     }
@@ -128,8 +158,24 @@ final class AppStateTests: XCTestCase {
         enqueueProbe(settingsAwake); shell.enqueue(PowerCommand.probeHelper, status: 0)
         sut.refresh()
         sut.stayAwakeAfterQuit = true
+        enqueueProbe(settingsAwake)     // fresh read still happens; the policy then declines
         sut.prepareForQuit()
+        XCTAssertEqual(sut.mode, .awake, "the fresh read must have succeeded, not thrown")
         XCTAssertFalse(shell.calls.contains(PowerCommand.setSleepDisabled(false)))
+    }
+
+    // The discriminating case for I2: the cached mode says normal (so a cache-based
+    // decision would skip the revert), but the machine is really awake.
+    func testPrepareForQuitUsesAFreshReadNotTheCachedMode() {
+        enqueueProbe(settingsNormal); shell.enqueue(PowerCommand.probeHelper, status: 0)
+        sut.refresh()
+        XCTAssertEqual(sut.mode, .normal)
+        enqueueProbe(settingsAwake)     // the system actually went awake since that refresh
+        shell.enqueue(PowerCommand.setSleepDisabled(false), status: 0)
+        enqueueProbe(settingsNormal)
+        sut.prepareForQuit()
+        XCTAssertTrue(shell.calls.contains(PowerCommand.setSleepDisabled(false)),
+                      "a stale .normal cache must not suppress the revert")
     }
 
     func testInstallHelperRefreshesAndClearsError() {
