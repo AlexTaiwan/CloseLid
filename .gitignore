@@ -1,0 +1,6 @@
+build/
+CloseLid.xcodeproj/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+.superpowers/

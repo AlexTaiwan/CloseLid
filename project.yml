@@ -1,0 +1,60 @@
+name: CloseLid
+options:
+  bundleIdPrefix: com.alexwang
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    ENABLE_APP_SANDBOX: "NO"
+    ENABLE_HARDENED_RUNTIME: "NO"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+targets:
+  CloseLid:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/CloseLid
+        excludes: ["Info.plist"]
+    info:
+      path: Sources/CloseLid/Info.plist
+      properties:
+        CFBundleName: CloseLid
+        CFBundleDisplayName: CloseLid
+        CFBundleIdentifier: com.alexwang.CloseLid
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSUIElement: true
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: ""
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alexwang.CloseLid
+        PRODUCT_NAME: CloseLid
+        GENERATE_INFOPLIST_FILE: "NO"
+  CloseLidTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/CloseLidTests
+    dependencies:
+      - target: CloseLid
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alexwang.CloseLidTests
+        GENERATE_INFOPLIST_FILE: "YES"
+schemes:
+  CloseLid:
+    build:
+      targets:
+        CloseLid: all
+        CloseLidTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - CloseLidTests
