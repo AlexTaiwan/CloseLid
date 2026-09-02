@@ -8,8 +8,9 @@
 
 When a MacBook lid is closed, macOS puts the machine to sleep. Any long-running
 LLM agent sessions (Claude Code, local model servers, etc.) are frozen until the
-lid is reopened. The user wants a **menu bar toggle**: one click to "Keep Awake
-(lid closed)" and one click back to "Normal sleep".
+lid is reopened. The user wants a **menu bar toggle**: open the menu, click
+"Keep Awake with Lid Closed", and click it again to return to normal sleep. Two
+clicks, no dialogs.
 
 `caffeinate` and IOKit power assertions do **not** prevent lid-close sleep on a
 MacBook. They only prevent *idle* sleep. The only supported software switch that
@@ -112,11 +113,14 @@ CloseLid.app (SwiftUI, MenuBarExtra, LSUIElement)
 │       PowerCommand.swift      builds exact argv for enable/disable/probe/install/remove
 │       SudoersRule.swift       renders the sudoers text for a given username
 │       QuitPolicy.swift        decides whether to revert on quit given prefs + state
+│       PrivilegedPrompt.swift  the sentences shown in the admin-password dialog
 │
 ├── System/ (thin I/O adapters)
 │       ShellRunner.swift       protocol ShellRunning { run(argv) -> (status, stdout, stderr) }
 │       ProcessShellRunner      real implementation using Foundation.Process
-│       PrivilegedRunner.swift  runs a shell string via osascript "with administrator privileges"
+│       PrivilegedRunner.swift  runs a shell script via osascript "with administrator privileges
+│                               with prompt <sentence naming CloseLid>" so the password dialog is
+│                               not attributed to "osascript"
 │       PowerController.swift   orchestrates: probe state, toggle, install/remove helper,
 │                               holds an IOPMAssertion while Awake (belt-and-braces vs idle sleep)
 │       (power source is read from `pmset -g batt` on every refresh; no IOKit monitor)
@@ -150,33 +154,94 @@ panics / power loss cannot be handled; the launch reconciliation covers those.
 
 ## 6. Menu layout
 
+Reviewed by a macOS UI/UX design pass on 2026-09-02; the layout below is the
+result. Rows marked *(disabled)* are non-interactive text; `✓` is a checked
+`Toggle`. In `.menu` style, clicking any item closes the menu, so every
+consequence the user must see *before* acting is shown at decision time, and
+every failure of a user action is also raised as a native alert (§7).
+
+**Normal sleep, rule installed, on AC** — icon `laptopcomputer`
+
 ```
-● Keep Awake (lid closed)      ← or "○ Normal sleep"; click toggles
-──────────────────────────────
-Power: AC adapter              ← or "Power: Battery ⚠︎ will drain until shutdown"
-Helper: installed              ← or "Install helper…" (action)
-──────────────────────────────
-☐ Stay awake after quit
-Remove helper…
-──────────────────────────────
-Quit CloseLid                 ⌘Q
+    Keep Awake with Lid Closed
+  ──────────────────────────────
+    On AC power                              (disabled)
+  ──────────────────────────────
+    Stay Awake After Quit
+    Remove Sudoers Rule…
+  ──────────────────────────────
+    Quit CloseLid                        ⌘Q
 ```
 
-Menu bar icon: SF Symbols `laptopcomputer` (Normal) vs
-`laptopcomputer.slash`-style filled variant or `sun.max.fill` (Awake). Exact
-choice left to the UI task; the requirement is distinguishable in both light and
-dark menu bars.
+**Awake, on battery** — icon `cup.and.saucer.fill`
+
+```
+  ✓ Keep Awake with Lid Closed
+  ──────────────────────────────
+    On battery — Keep Awake will run it down to empty    (disabled)
+  ──────────────────────────────
+    Stay Awake After Quit
+    Remove Sudoers Rule…
+  ──────────────────────────────
+    Quit CloseLid                        ⌘Q
+```
+
+**First run, rule not installed** — icon `laptopcomputer`
+
+```
+    Keep Awake with Lid Closed               (disabled)
+    Not set up yet — needs a one-time admin password     (disabled)
+    Install Sudoers Rule…
+  ──────────────────────────────
+    On AC power                              (disabled)
+  ──────────────────────────────
+    Stay Awake After Quit
+  ──────────────────────────────
+    Quit CloseLid                        ⌘Q
+```
+
+**Unknown (`pmset -g` unreadable)** — icon `laptopcomputer.trianglebadge.exclamationmark`
+
+```
+    Keep Awake with Lid Closed               (disabled)
+    Could not read the sleep setting         (disabled)
+  ──────────────────────────────
+    Power source unknown                     (disabled)
+  ──────────────────────────────
+    Stay Awake After Quit
+    Remove Sudoers Rule…
+  ──────────────────────────────
+    Quit CloseLid                        ⌘Q
+```
+
+When a user action fails, its error text is inserted as a disabled first row
+until the next successful action.
+
+Icon rules: three distinct silhouettes because the menu bar renders a
+monochrome template and inverts it while open, so rendering modes and
+fill-vs-outline pairs do not separate. `sun.max.fill` is avoided because it is
+the system brightness glyph and this app does not touch the display. Each image
+carries an accessibility label. User-visible copy says "sudoers rule", never
+"helper", because to this audience "helper" means an `SMAppService` privileged
+helper, which §4 rejects. Code identifiers keep `helper`.
+
+Admin-password dialog copy (AppleScript `with prompt`), because the dialog is
+otherwise attributed to "osascript":
+
+- Install: "CloseLid needs your password once to add a sudoers rule that lets it turn lid-close sleep on and off without asking again."
+- Remove: "CloseLid needs your password once to remove the sudoers rule it installed." plus, when currently awake, " This also switches back to normal sleep."
 
 ## 7. Error handling
 
 | Situation | Behaviour |
 |---|---|
-| Helper not installed, toggle attempted | No state change; menu switches to Install prompt with one-line explanation. |
+| Rule not installed | Primary item is disabled and "Install Sudoers Rule…" sits directly under it, so the first-run failure cannot happen. If the rule was removed behind the app's back and a toggle fails, a native alert "CloseLid could not change the sleep setting." shows the reason and the menu switches to the not-set-up state. |
 | `visudo -c` fails | Abort install, show error, leave `/etc/sudoers.d` untouched. |
 | User cancels admin prompt | Silent no-op. |
+| Any other failure of a user-initiated action (toggle, install, remove) | Native `NSAlert` (activate app first, next run-loop turn) with the reason, plus the same text as the first menu row. The 20 s background refresh never alerts. |
 | `pmset -g` output unparseable | Treat as unknown; icon shows a "?" state, toggle disabled, log the raw text. |
 | Toggle succeeded but read-back disagrees | Show read-back value; log discrepancy. Never trust the write. |
-| Enabling Awake on battery | Allowed, but the power line shows the ⚠︎ warning. (No modal; the user asked for a quick switch.) |
+| On battery | Allowed. The power line reads "On battery — Keep Awake will run it down to empty" in both modes, so the consequence is visible before enabling. No modal. |
 
 ## 8. Testing
 
