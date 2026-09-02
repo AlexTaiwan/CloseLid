@@ -64,4 +64,3 @@ persists it); relaunching shows the true state so you can switch it off.
 
 - A closed MacBook on a soft surface can run hot. Leave it on a hard surface.
 - On battery, Awake mode drains until forced shutdown. Plug in.
-- Not sandboxed, not notarized, not for the App Store. Built for personal use.
