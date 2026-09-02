@@ -51,6 +51,23 @@ final class PmsetParserTests: XCTestCase {
         XCTAssertEqual(PmsetParser.sleepDisabled(fromSettings: Self.settingsExplicitZero), false)
     }
 
+    // Real layout once the key has ever been set: the line sits in the
+    // "System-wide power settings:" header section, before "Currently in use:",
+    // and pmset separates it with tabs, not spaces.
+    static let settingsRevertedRealLayout = """
+    System-wide power settings:
+     SleepDisabled\t\t0
+    Currently in use:
+     standby              1
+     sleep                0
+    """
+
+    func testRevertedFlagInHeaderSectionWithTabsReportsFalse() {
+        XCTAssertEqual(PmsetParser.sleepDisabled(fromSettings: Self.settingsRevertedRealLayout), false)
+        let awake = Self.settingsRevertedRealLayout.replacingOccurrences(of: "SleepDisabled\t\t0", with: "SleepDisabled\t\t1")
+        XCTAssertEqual(PmsetParser.sleepDisabled(fromSettings: awake), true)
+    }
+
     func testGarbageReportsNil() {
         XCTAssertNil(PmsetParser.sleepDisabled(fromSettings: ""))
         XCTAssertNil(PmsetParser.sleepDisabled(fromSettings: "pmset: command not found"))

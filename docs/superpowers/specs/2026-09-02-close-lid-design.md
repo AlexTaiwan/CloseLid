@@ -261,7 +261,9 @@ otherwise attributed to "osascript":
   mode with an external display, which no software can substitute).
 - **Manual end-to-end:** install helper, toggle Awake, close lid, `ssh`/`ping`
   from another device or watch an agent log keep advancing, reopen, toggle
-  Normal, confirm `pmset -g` shows no `SleepDisabled`.
+  Normal, confirm `pmset -g | grep SleepDisabled` shows `SleepDisabled 0` (once the
+  key has ever been set, `pmset -g` keeps listing it with value 0; counting lines
+  is not a valid check).
 
 ## 9. Build and distribution
 
