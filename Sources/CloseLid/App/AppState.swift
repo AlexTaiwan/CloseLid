@@ -1,9 +1,17 @@
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
 final class AppState {
+    /// Extends the §7 logging rules to the happy path, after a 2026-09-03 report of
+    /// "it was on and it still slept" had to be answered by reconstructing the flag's
+    /// history from CloseLid's power assertion in `pmset -g log`. Every mode transition
+    /// and every toggle attempt now leaves a line, so the next such report is answered
+    /// by `log show --predicate 'subsystem == "com.alexwang.CloseLid"'`.
+    private static let log = Logger(subsystem: "com.alexwang.CloseLid", category: "state")
+
     // MARK: Live wiring
     static let shared: AppState = {
         let shell = ProcessShellRunner()
@@ -38,6 +46,9 @@ final class AppState {
     private let username: String
     private let loginItem: LoginItemManaging
     private var refreshTimer: Timer?
+    /// Set when another copy of the app is already running. That copy owns the flag,
+    /// so this one must leave it alone — above all on the way out.
+    private var isSecondaryInstance = false
     /// True while `lastError` holds a message written by a failed `refreshPowerOnly`.
     /// Spec §6/§7: a later successful background read clears a probe-origin error row,
     /// but errors from user actions persist until the next successful action.
@@ -80,6 +91,9 @@ final class AppState {
             // failure must stay on the menu until the next successful user action.
             if lastErrorIsFromProbe { clearError() }
         } catch {
+            if mode != .unknown {
+                Self.log.error("mode changed: \(Self.name(self.mode), privacy: .public) -> unknown (probe failed)")
+            }
             mode = .unknown
             lastError = "Could not read power settings: \(error.localizedDescription)"
             lastErrorIsFromProbe = true
@@ -91,8 +105,13 @@ final class AppState {
         switch mode {
         case .normal: target = true
         case .awake: target = false
-        case .unknown: return
+        case .unknown:
+            // Silent to the user by design (the row is disabled), but never silent in
+            // the log: this is the path where a click does nothing at all.
+            Self.log.error("toggle ignored: mode is unknown")
+            return
         }
+        Self.log.notice("toggle requested: \(self.mode == .awake ? "awake" : "normal", privacy: .public) -> \(target ? "awake" : "normal", privacy: .public)")
         do {
             // setSleepDisabled already re-probed and verified; use that snapshot directly.
             apply(try controller.setSleepDisabled(target))
@@ -108,8 +127,19 @@ final class AppState {
     }
 
     private func apply(_ snapshot: PmsetSnapshot) {
+        if snapshot.mode != mode {
+            Self.log.notice("mode changed: \(Self.name(self.mode), privacy: .public) -> \(Self.name(snapshot.mode), privacy: .public)")
+        }
         mode = snapshot.mode
         powerSource = snapshot.powerSource
+    }
+
+    private static func name(_ mode: PowerMode) -> String {
+        switch mode {
+        case .normal: return "normal"
+        case .awake: return "awake"
+        case .unknown: return "unknown"
+        }
     }
 
     func installHelper() {
@@ -164,9 +194,18 @@ final class AppState {
         lastErrorIsFromProbe = false
     }
 
+    /// Marks this process as the losing side of the instance guard: it stops polling
+    /// and will not write the flag, so quitting it cannot disturb the copy that owns it.
+    func standDown() {
+        isSecondaryInstance = true
+        refreshTimer?.invalidate()
+        Self.log.notice("standing down: another copy of CloseLid is already running")
+    }
+
     /// Synchronous on purpose: called from applicationWillTerminate / SIGTERM.
     func prepareForQuit() {
         refreshTimer?.invalidate()
+        guard !isSecondaryInstance else { return }
         // Decide from a fresh read, never from `mode`: it can be up to one tick stale,
         // or `.unknown` after a tick that happened to fail, and either would skip the
         // revert and leave the Mac awake with the lid closed.

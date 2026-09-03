@@ -219,6 +219,20 @@ final class AppStateTests: XCTestCase {
                       "a stale .normal cache must not suppress the revert")
     }
 
+    // A second copy of the app must never touch the flag: the first copy owns it.
+    // Without this, quitting either of two running copies silently reverts sleep
+    // under the other one, and the Mac sleeps on the next lid close.
+    func testSecondaryInstanceDoesNotRevertOnQuit() {
+        enqueueProbe(settingsAwake); shell.enqueue(PowerCommand.probeHelper, status: 0)
+        sut.refresh()
+        let callsBeforeQuit = shell.calls.count
+        sut.standDown()
+        sut.prepareForQuit()
+        XCTAssertFalse(shell.calls.contains(PowerCommand.setSleepDisabled(false)))
+        XCTAssertEqual(shell.calls.count, callsBeforeQuit,
+                       "a secondary instance must not even probe on the way out")
+    }
+
     func testInstallHelperRefreshesAndClearsError() {
         sut.lastError = "old"
         enqueueProbe(settingsNormal); shell.enqueue(PowerCommand.probeHelper, status: 0)

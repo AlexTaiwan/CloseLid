@@ -53,6 +53,29 @@ The app always re-reads `pmset -g` after every change and shows what the system
 actually reports. If the app crashes while Awake, the flag stays on (macOS
 persists it); relaunching shows the true state so you can switch it off.
 
+**Keep Awake does not survive a quit.** Unless *Stay Awake After Quit* is ticked,
+quitting the app — including at logout or a restart — switches sleep back to normal.
+Launching the app does *not* turn Keep Awake back on; it only shows you the current
+state. So after any relaunch, check the menu bar icon before you close the lid: a
+coffee cup means awake, a laptop means it will sleep.
+
+**Run only one copy.** Two copies (say one in `/Applications` and one in `build/`)
+share a bundle id, a login item and a single system-wide flag, and each restores
+normal sleep when it quits — so quitting one silently switches sleep back on under
+the other. A second copy now refuses to launch and says so instead of starting.
+
+## Diagnosing "I had it on and it slept anyway"
+
+```sh
+log show --last 1d --predicate 'subsystem == "com.alexwang.CloseLid"'   # every toggle and mode change
+pmset -g log | grep "Entering Sleep state"                              # every sleep, with its reason
+```
+
+`'Clamshell Sleep'` is a lid close, `'Idle Sleep'` is an idle timeout; `'Maintenance
+Sleep'` and `'Sleep Service Back to Sleep'` only happen while the Mac is *already*
+asleep and are not the event you are looking for. Cross-check the timestamps against
+the app's own log to see whether the flag was really on at that moment.
+
 ## Uninstall
 
 1. Menu → **Remove Sudoers Rule…** (admin password).
