@@ -67,7 +67,7 @@ the other. A second copy now refuses to launch and says so instead of starting.
 ## Diagnosing "I had it on and it slept anyway"
 
 ```sh
-log show --last 1d --predicate 'subsystem == "com.alexwang.CloseLid"'   # every toggle and mode change
+/usr/bin/log show --last 1d --predicate 'subsystem == "com.alexwang.CloseLid"'   # every toggle and mode change
 pmset -g log | grep "Entering Sleep state"                              # every sleep, with its reason
 ```
 
