@@ -28,7 +28,12 @@ final class PowerController {
     /// Reads the live system state and aligns the idle-sleep assertion with it.
     func probe() throws -> PmsetSnapshot {
         let settings = try shell.run(PowerCommand.probeSettings)
-        let battery = try shell.run(PowerCommand.probeBattery)
+        guard settings.status == 0 else {
+            throw PowerError.commandFailed(settings.stderr)
+        }
+        // Battery reporting is ancillary: its failure must not hide the sleep flag
+        // or prevent the quit path from restoring normal sleep.
+        let battery = try? shell.run(PowerCommand.probeBattery)
         let sleepDisabled = PmsetParser.sleepDisabled(fromSettings: settings.stdout)
         if sleepDisabled == nil {
             // Public on purpose: pmset -g output holds no personal data and the raw
@@ -37,7 +42,8 @@ final class PowerController {
         }
         let snapshot = PmsetSnapshot(
             sleepDisabled: sleepDisabled,
-            powerSource: PmsetParser.powerSource(fromBattery: battery.stdout)
+            powerSource: battery?.status == 0
+                ? PmsetParser.powerSource(fromBattery: battery!.stdout) : .unknown
         )
         syncAssertion(to: snapshot.sleepDisabled)
         return snapshot

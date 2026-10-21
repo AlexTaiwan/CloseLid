@@ -87,3 +87,27 @@ the app's own log to see whether the flag was really on at that moment.
 
 - A closed MacBook on a soft surface can run hot. Leave it on a hard surface.
 - On battery, Awake mode drains until forced shutdown. Plug in.
+
+## Verify on your MacBook
+
+Run automated checks with:
+
+```sh
+xcodegen generate
+xcodebuild -scheme CloseLid -configuration Debug -derivedDataPath build/DerivedData -destination 'platform=macOS' test
+```
+
+For a hardware check, enable Keep Awake and confirm `pmset -g` reports
+`SleepDisabled 1`. Start a timestamp log in Terminal:
+
+```sh
+while true; do date '+%Y-%m-%d %H:%M:%S'; sleep 5; done > /tmp/closelid-heartbeat.log
+```
+
+Close the lid for two minutes, reopen it, and stop the loop with Control-C.
+Check the log for uninterrupted timestamps and check `pmset -g log` for a
+sleep event during that interval. Repeat on AC and battery if you use both.
+Then turn Keep Awake off and confirm `SleepDisabled 0`; also verify quitting
+while Awake restores `0` with Stay Awake After Quit unchecked. Automated
+tests validate command handling and state transitions; this physical check
+is needed to confirm lid-close behavior on your hardware.

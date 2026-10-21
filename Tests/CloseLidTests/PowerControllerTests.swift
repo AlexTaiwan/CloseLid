@@ -51,6 +51,27 @@ final class PowerControllerTests: XCTestCase {
         XCTAssertFalse(assertion.isHeld)
     }
 
+    func testFailedSettingsCommandRejectsEvenParseableOutput() {
+        shell.enqueue(PowerCommand.probeSettings, status: 1, stdout: settingsAwake, stderr: "failed")
+        XCTAssertThrowsError(try sut.probe())
+    }
+
+    func testBatteryFailureDoesNotHideAwakeState() throws {
+        shell.enqueue(PowerCommand.probeSettings, stdout: settingsAwake)
+        shell.enqueue(PowerCommand.probeBattery, status: 1, stderr: "failed")
+        let snapshot = try sut.probe()
+        XCTAssertEqual(snapshot.mode, .awake)
+        XCTAssertEqual(snapshot.powerSource, .unknown)
+        XCTAssertTrue(assertion.isHeld)
+    }
+
+    func testBatteryLaunchFailureDoesNotPreventDisableVerification() throws {
+        shell.enqueue(PowerCommand.setSleepDisabled(false))
+        shell.enqueue(PowerCommand.probeSettings, stdout: settingsNormal)
+        // No battery response: the mock throws a launch-style error.
+        XCTAssertEqual(try sut.setSleepDisabled(false).mode, .normal)
+    }
+
     // MARK: helper detection
 
     func testHelperInstalledWhenSudoListSucceeds() {

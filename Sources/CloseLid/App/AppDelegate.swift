@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var instances: RunningInstancesCounting = WorkspaceInstances()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hosted unit tests must never change the real machine power setting.
+        guard !InstanceGuard.isRunningTests else { return }
         AppState.shared.alertPresenter = Self.presentAlert
 
         // Logged because two copies at different paths are indistinguishable in the
@@ -42,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        guard !InstanceGuard.isRunningTests else { return }
         AppState.shared.prepareForQuit()
     }
 

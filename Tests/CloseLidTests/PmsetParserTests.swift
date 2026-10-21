@@ -68,6 +68,17 @@ final class PmsetParserTests: XCTestCase {
         XCTAssertEqual(PmsetParser.sleepDisabled(fromSettings: awake), true)
     }
 
+    func testSystemWideOnlyOutput() {
+        XCTAssertEqual(PmsetParser.sleepDisabled(fromSettings: "System-wide power settings:\n SleepDisabled\t\t0\n"), false)
+        XCTAssertEqual(PmsetParser.sleepDisabled(fromSettings: "System-wide power settings:\n SleepDisabled\t\t1\n"), true)
+    }
+
+    func testMalformedFlagReportsUnknown() {
+        for value in ["", "2", "invalid"] {
+            XCTAssertNil(PmsetParser.sleepDisabled(fromSettings: "Currently in use:\n SleepDisabled \(value)\n"))
+        }
+    }
+
     func testGarbageReportsNil() {
         XCTAssertNil(PmsetParser.sleepDisabled(fromSettings: ""))
         XCTAssertNil(PmsetParser.sleepDisabled(fromSettings: "pmset: command not found"))
