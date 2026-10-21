@@ -7,6 +7,8 @@ enum PowerCommand {
 
     static let probeSettings = [pmsetPath, "-g"]
     static let probeBattery = [pmsetPath, "-g", "batt"]
+    /// Reading needs no password (setting it would).
+    static let probeScreenLock = ["/usr/sbin/sysadminctl", "-screenLock", "status"]
 
     /// Exit status 0 iff the sudoers rule allows the enable command without a password.
     static let probeHelper = [sudoPath, "-n", "-l", pmsetPath, "-a", "disablesleep", "1"]

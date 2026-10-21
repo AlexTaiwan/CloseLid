@@ -24,6 +24,19 @@ final class PowerControllerTests: XCTestCase {
         shell.enqueue(PowerCommand.probeBattery, stdout: batt)
     }
 
+    // MARK: screen lock
+
+    func testProbeScreenLockReadsStderr() {
+        shell.enqueue(PowerCommand.probeScreenLock, stderr: ScreenLockParserTests.immediate)
+        XCTAssertEqual(sut.probeScreenLock(), .immediate)
+    }
+
+    func testProbeScreenLockFailureIsUnknown() {
+        shell.enqueue(PowerCommand.probeScreenLock, status: 1, stderr: "screenLock delay is immediate")
+        XCTAssertEqual(sut.probeScreenLock(), .unknown)
+        XCTAssertEqual(sut.probeScreenLock(), .unknown, "a command that cannot run must not throw")
+    }
+
     // MARK: probe
 
     func testProbeParsesBothCommands() throws {

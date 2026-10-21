@@ -91,7 +91,7 @@ final class AppStateTests: XCTestCase {
         sut.toggle()
         XCTAssertEqual(sut.mode, .awake)
         XCTAssertNil(sut.lastError)
-        XCTAssertEqual(shell.calls.count, 3 + 1 + 2, "refresh(3) + sudo(1) + read-back probe pair(2)")
+        XCTAssertEqual(shell.calls.count, 4 + 1 + 2, "refresh(3 + screen lock 1) + sudo(1) + read-back probe pair(2)")
     }
 
     func testToggleFromAwakeDisables() {

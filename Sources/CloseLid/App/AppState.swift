@@ -28,6 +28,7 @@ final class AppState {
     private(set) var powerSource: PowerSource = .unknown
     private(set) var helperInstalled = false
     private(set) var launchAtLogin: LoginItemStatus = .disabled
+    private(set) var screenLock: ScreenLockDelay = .unknown
     var lastError: String?
 
     /// Shows a native alert for failures of user-initiated actions. Injected so tests
@@ -70,7 +71,11 @@ final class AppState {
         refresh()
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshPowerOnly() }
+            Task { @MainActor in
+                self?.refreshPowerOnly()
+                // Re-read every tick: the user changes it in System Settings, not here.
+                self?.refreshScreenLock()
+            }
         }
     }
 
@@ -81,6 +86,12 @@ final class AppState {
         refreshPowerOnly()
         helperInstalled = controller.isHelperInstalled()
         launchAtLogin = loginItem.status
+        refreshScreenLock()
+    }
+
+    /// Re-reads `sysadminctl -screenLock status`. Never touches `lastError`.
+    func refreshScreenLock() {
+        screenLock = controller.probeScreenLock()
     }
 
     /// Re-reads `pmset -g` / `pmset -g batt` only.

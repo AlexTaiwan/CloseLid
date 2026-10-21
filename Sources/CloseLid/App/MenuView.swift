@@ -11,6 +11,9 @@ import SwiftUI
 ///   ─────
 ///   On AC power | On battery — Keep Awake will run it down to empty | Power source unknown
 ///   ─────
+///   Password after lid close: immediately | after 5 minutes | never | unknown   (disabled)
+///   Lock Screen Settings…                          opens System Settings › Lock Screen
+///   ─────
 ///   Launch at Login                                Toggle
 ///   Approve CloseLid under System Settings › Login Items   (disabled; requiresApproval only)
 ///   Stay Awake After Quit                          Toggle
@@ -45,6 +48,13 @@ struct MenuView: View {
 
         Divider()
 
+        Text(state.screenLock.menuLine)
+        Button("Lock Screen Settings…") {
+            NSWorkspace.shared.open(Self.lockScreenSettingsURL)
+        }
+
+        Divider()
+
         Toggle("Launch at Login", isOn: Binding(
             get: { state.launchAtLogin == .enabled },
             set: { state.setLaunchAtLogin($0) }
@@ -62,6 +72,9 @@ struct MenuView: View {
         Button("Quit CloseLid") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")
     }
+
+    private static let lockScreenSettingsURL =
+        URL(string: "x-apple.systempreferences:com.apple.Lock-Screen-Settings.extension")!
 
     private var powerLine: String {
         switch state.powerSource {

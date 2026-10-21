@@ -49,6 +49,14 @@ final class PowerController {
         return snapshot
     }
 
+    /// Informational only, so a failure reads as `.unknown` instead of throwing.
+    func probeScreenLock() -> ScreenLockDelay {
+        guard let result = try? shell.run(PowerCommand.probeScreenLock), result.status == 0 else {
+            return .unknown
+        }
+        return ScreenLockParser.delay(fromStatus: result.stderr + "\n" + result.stdout)
+    }
+
     func isHelperInstalled() -> Bool {
         (try? shell.run(PowerCommand.probeHelper))?.status == 0
     }
