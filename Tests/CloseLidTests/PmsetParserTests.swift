@@ -104,6 +104,27 @@ final class PmsetParserTests: XCTestCase {
         XCTAssertEqual(PmsetParser.powerSource(fromBattery: ""), .unknown)
     }
 
+    func testBatteryPercentFromRealLines() {
+        let discharging = "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1234)\t87%; discharging; 5:10 remaining present: true\n"
+        XCTAssertEqual(PmsetParser.batteryPercent(fromBattery: discharging), 87)
+        let full = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1234)\t100%; charged; 0:00 remaining present: true\n"
+        XCTAssertEqual(PmsetParser.batteryPercent(fromBattery: full), 100)
+        let low = "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1234)\t5%; discharging; (no estimate) present: true\n"
+        XCTAssertEqual(PmsetParser.batteryPercent(fromBattery: low), 5)
+    }
+
+    func testBatteryPercentIsNilWithoutABatteryLine() {
+        XCTAssertNil(PmsetParser.batteryPercent(fromBattery: ""))
+        XCTAssertNil(PmsetParser.batteryPercent(fromBattery: "Now drawing from 'AC Power'\n"))
+        XCTAssertNil(PmsetParser.batteryPercent(fromBattery: " -InternalBattery-0 (id=1234)\tcharging\n"))
+        XCTAssertNil(PmsetParser.batteryPercent(fromBattery: " -InternalBattery-0 (id=1234)\t%; charging\n"))
+        XCTAssertNil(PmsetParser.batteryPercent(fromBattery: " -InternalBattery-0 (id=1234)\t250%; charging\n"))
+    }
+
+    func testSnapshotBatteryPercentDefaultsToNil() {
+        XCTAssertNil(PmsetSnapshot(sleepDisabled: true, powerSource: .battery).batteryPercent)
+    }
+
     func testSnapshotModeMapping() {
         XCTAssertEqual(PmsetSnapshot(sleepDisabled: nil, powerSource: .ac).mode, .unknown)
         XCTAssertEqual(PmsetSnapshot(sleepDisabled: true, powerSource: .ac).mode, .awake)

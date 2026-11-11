@@ -12,8 +12,9 @@ final class QuitPolicyTests: XCTestCase {
         XCTAssertFalse(QuitPolicy.shouldRevertOnQuit(sleepDisabled: false, stayAwakeAfterQuit: false))
         XCTAssertFalse(QuitPolicy.shouldRevertOnQuit(sleepDisabled: false, stayAwakeAfterQuit: true))
     }
-    func testDoesNotTouchSystemWhenStateUnknown() {
-        XCTAssertFalse(QuitPolicy.shouldRevertOnQuit(sleepDisabled: nil, stayAwakeAfterQuit: false))
+    // Fail safe: an unreadable state reverts, unless the user asked to stay awake.
+    func testRevertsWhenStateUnknownUnlessUserOptedToStayAwake() {
+        XCTAssertTrue(QuitPolicy.shouldRevertOnQuit(sleepDisabled: nil, stayAwakeAfterQuit: false))
         XCTAssertFalse(QuitPolicy.shouldRevertOnQuit(sleepDisabled: nil, stayAwakeAfterQuit: true))
     }
 }

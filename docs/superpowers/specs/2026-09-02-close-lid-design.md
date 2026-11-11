@@ -284,3 +284,20 @@ otherwise attributed to "osascript":
    means the app would show "unknown" rather than lie.
 3. A closed MacBook running hot on a soft surface can throttle or overheat;
    the README should say so. Not a software concern.
+
+## 11. Amendments (2026-11-11 review)
+
+The code supersedes the text above in these places
+(plan: `docs/superpowers/plans/2026-11-11-review-improvements.md`):
+
+1. **§3 and §7 "On battery".** Still allowed, but no longer left to run to empty.
+   `BatteryGuard` restores normal sleep when Keep Awake is on, the Mac is on battery
+   and the charge is at or below 10%. It leaves a menu row saying so, never a modal.
+   A manual re-enable below 10% is respected until the Mac is on AC or above 10%.
+   The power line shows the charge: "On battery (42%) — Keep Awake switches off at 10%".
+2. **§5 "Quit".** `QuitPolicy` now fails safe: it reverts unless the fresh read
+   positively says normal sleep, or "Stay Awake After Quit" is ticked. An unreadable
+   state reverts. The quit-time revert and its failure are logged.
+3. **§5 "Quit", Force Quit.** Activity Monitor's *Quit* sends SIGTERM and reverts;
+   *Force Quit* sends SIGKILL and cannot be handled, so the flag stays on;
+   relaunching only shows the true state and does not switch it off.

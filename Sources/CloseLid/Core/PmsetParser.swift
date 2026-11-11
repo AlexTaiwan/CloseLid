@@ -27,4 +27,18 @@ enum PmsetParser {
         if text.contains("'Battery Power'") { return .battery }
         return .unknown
     }
+
+    /// Parses the charge from `pmset -g batt` output, e.g.
+    /// " -InternalBattery-0 (id=1234)\t87%; discharging; 5:10 remaining present: true".
+    /// - Returns: 0...100, or `nil` when there is no internal battery line (a desktop
+    ///   Mac, or unreadable output). `nil` must never be read as "empty".
+    static func batteryPercent(fromBattery text: String) -> Int? {
+        for line in text.split(whereSeparator: \.isNewline) where line.contains("InternalBattery") {
+            guard let percentIndex = line.firstIndex(of: "%") else { return nil }
+            let digits = String(line[..<percentIndex].reversed().prefix(while: { $0.isASCII && $0.isNumber }).reversed())
+            guard let value = Int(digits), (0...100).contains(value) else { return nil }
+            return value
+        }
+        return nil
+    }
 }

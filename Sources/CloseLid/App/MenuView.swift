@@ -4,12 +4,13 @@ import SwiftUI
 /// items: `Text` draws disabled, `Toggle` draws a real checkmark item.
 ///
 ///   [last error, if any]                          (disabled)
+///   Keep Awake switched itself off at 10% battery  (disabled; after the battery guard fired)
 ///   ✓ Keep Awake with Lid Closed                   Toggle; disabled when unknown or rule missing
 ///   Could not read the sleep setting               (disabled; unknown only)
 ///   Not set up yet — needs a one-time admin password   (disabled; rule missing only)
 ///   Install Sudoers Rule…                          (rule missing only)
 ///   ─────
-///   On AC power | On battery — Keep Awake will run it down to empty | Power source unknown
+///   On AC power | On battery (42%) — Keep Awake switches off at 10% | Power source unknown
 ///   ─────
 ///   Password after lid close: immediately | after 5 minutes | never | unknown   (disabled)
 ///   Lock Screen Settings…                          opens System Settings › Lock Screen
@@ -26,6 +27,9 @@ struct MenuView: View {
     var body: some View {
         if let error = state.lastError {
             Text(error)
+        }
+        if let notice = state.batteryGuardNotice {
+            Text(notice)
         }
 
         Toggle("Keep Awake with Lid Closed", isOn: Binding(
@@ -44,7 +48,7 @@ struct MenuView: View {
 
         Divider()
 
-        Text(powerLine)
+        Text(BatteryGuard.menuLine(powerSource: state.powerSource, batteryPercent: state.batteryPercent))
 
         Divider()
 
@@ -75,12 +79,4 @@ struct MenuView: View {
 
     private static let lockScreenSettingsURL =
         URL(string: "x-apple.systempreferences:com.apple.Lock-Screen-Settings.extension")!
-
-    private var powerLine: String {
-        switch state.powerSource {
-        case .ac:      return "On AC power"
-        case .battery: return "On battery — Keep Awake will run it down to empty"
-        case .unknown: return "Power source unknown"
-        }
-    }
 }

@@ -40,10 +40,11 @@ final class PowerController {
             // text is the only way to diagnose a parser miss from a user's log.
             Self.log.error("pmset -g output not parseable; raw text: \(settings.stdout, privacy: .public)")
         }
+        let batteryText = battery?.status == 0 ? battery?.stdout : nil
         let snapshot = PmsetSnapshot(
             sleepDisabled: sleepDisabled,
-            powerSource: battery?.status == 0
-                ? PmsetParser.powerSource(fromBattery: battery!.stdout) : .unknown
+            powerSource: batteryText.map(PmsetParser.powerSource(fromBattery:)) ?? .unknown,
+            batteryPercent: batteryText.flatMap(PmsetParser.batteryPercent(fromBattery:))
         )
         syncAssertion(to: snapshot.sleepDisabled)
         return snapshot

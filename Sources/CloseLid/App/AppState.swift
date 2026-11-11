@@ -26,6 +26,11 @@ final class AppState {
     // MARK: Observable state
     private(set) var mode: PowerMode = .unknown
     private(set) var powerSource: PowerSource = .unknown
+    /// Internal battery charge, 0...100; `nil` when unknown or there is no battery.
+    private(set) var batteryPercent: Int?
+    /// Set when the battery guard switched Keep Awake off, so the reason is still on
+    /// the menu when the lid is opened again. Cleared by the next successful toggle.
+    private(set) var batteryGuardNotice: String?
     private(set) var helperInstalled = false
     private(set) var launchAtLogin: LoginItemStatus = .disabled
     private(set) var screenLock: ScreenLockDelay = .unknown
@@ -54,6 +59,13 @@ final class AppState {
     /// Spec §6/§7: a later successful background read clears a probe-origin error row,
     /// but errors from user actions persist until the next successful action.
     private var lastErrorIsFromProbe = false
+    /// True after the user switched Keep Awake on by hand while the battery was already
+    /// low. The guard then stays out of the way until the battery has recovered.
+    private var batteryGuardOverridden = false
+    /// Charge at which the guard last failed to restore normal sleep. It retries only
+    /// once the charge has dropped further, so a missing sudoers rule does not produce
+    /// a failing `sudo -n` every tick.
+    private var batteryGuardFailedAtPercent: Int?
 
     init(controller: PowerController, defaults: UserDefaults, username: String, loginItem: LoginItemManaging) {
         self.controller = controller
@@ -69,13 +81,48 @@ final class AppState {
     /// failing `sudo -n -l` writes an auth-failure line to the system log each time.
     func startPeriodicRefresh(interval: TimeInterval = 20) {
         refresh()
+        enforceBatteryGuard()
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.refreshPowerOnly()
-                // Re-read every tick: the user changes it in System Settings, not here.
-                self?.refreshScreenLock()
+                self?.periodicTick()
             }
+        }
+    }
+
+    /// One background tick. Separate from the Timer closure so tests can drive it.
+    func periodicTick() {
+        refreshPowerOnly()
+        enforceBatteryGuard()
+        // Re-read every tick: the user changes it in System Settings, not here.
+        refreshScreenLock()
+    }
+
+    /// Restores normal sleep when Keep Awake is on and the battery is low. Works only
+    /// from the state the last probe published; it runs no command unless it reverts.
+    /// Background path: it never raises an alert.
+    func enforceBatteryGuard() {
+        guard !isSecondaryInstance else { return }
+        if BatteryGuard.isRecovered(powerSource: powerSource, batteryPercent: batteryPercent) {
+            batteryGuardOverridden = false
+            batteryGuardFailedAtPercent = nil
+        }
+        guard BatteryGuard.shouldRevert(mode: mode, powerSource: powerSource, batteryPercent: batteryPercent),
+              let percent = batteryPercent,
+              !batteryGuardOverridden else { return }
+        if let failedAt = batteryGuardFailedAtPercent, percent >= failedAt { return }
+
+        Self.log.error("battery guard: \(percent, privacy: .public)% on battery, switching Keep Awake off")
+        do {
+            apply(try controller.setSleepDisabled(false))
+            batteryGuardFailedAtPercent = nil
+            batteryGuardNotice = BatteryGuard.notice(percent: percent)
+        } catch {
+            let reason = Self.message(for: error)
+            Self.log.error("battery guard: could not switch Keep Awake off: \(reason, privacy: .public)")
+            batteryGuardFailedAtPercent = percent
+            lastError = "Battery is at \(percent)% but Keep Awake could not be switched off. \(reason)"
+            lastErrorIsFromProbe = false
         }
     }
 
@@ -127,6 +174,14 @@ final class AppState {
             // setSleepDisabled already re-probed and verified; use that snapshot directly.
             apply(try controller.setSleepDisabled(target))
             clearError()
+            batteryGuardNotice = nil
+            // Switching it on by hand below the threshold is a deliberate choice;
+            // without this the guard would undo it on the next tick.
+            batteryGuardOverridden = target
+                && BatteryGuard.isLow(powerSource: powerSource, batteryPercent: batteryPercent)
+            if batteryGuardOverridden {
+                Self.log.notice("battery guard overridden by the user until the battery recovers")
+            }
         } catch PowerError.helperNotInstalled {
             // The controller already ran `sudo -n -l` and found no rule.
             helperInstalled = false
@@ -143,6 +198,7 @@ final class AppState {
         }
         mode = snapshot.mode
         powerSource = snapshot.powerSource
+        batteryPercent = snapshot.batteryPercent
     }
 
     private static func name(_ mode: PowerMode) -> String {
@@ -217,13 +273,22 @@ final class AppState {
     func prepareForQuit() {
         refreshTimer?.invalidate()
         guard !isSecondaryInstance else { return }
-        // Decide from a fresh read, never from `mode`: it can be up to one tick stale,
-        // or `.unknown` after a tick that happened to fail, and either would skip the
-        // revert and leave the Mac awake with the lid closed.
+        // Decide from a fresh read, never from `mode`: it can be up to one tick stale.
+        // If the fresh read itself fails, QuitPolicy still reverts (fail safe).
         refreshPowerOnly()
         let sleepDisabled: Bool? = (mode == .awake) ? true : (mode == .normal ? false : nil)
-        guard QuitPolicy.shouldRevertOnQuit(sleepDisabled: sleepDisabled, stayAwakeAfterQuit: stayAwakeAfterQuit) else { return }
-        _ = try? controller.setSleepDisabled(false)
+        guard QuitPolicy.shouldRevertOnQuit(sleepDisabled: sleepDisabled, stayAwakeAfterQuit: stayAwakeAfterQuit) else {
+            Self.log.notice("quit: leaving the sleep setting as it is (\(Self.name(self.mode), privacy: .public))")
+            return
+        }
+        do {
+            try controller.setSleepDisabled(false)
+            Self.log.notice("quit: normal sleep restored")
+        } catch {
+            // Nobody is left to show an alert to; the log is the only trace that the
+            // Mac was left awake.
+            Self.log.error("quit: could not restore normal sleep: \(Self.message(for: error), privacy: .public)")
+        }
     }
 
     // MARK: Messages

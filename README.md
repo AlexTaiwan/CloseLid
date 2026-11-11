@@ -42,7 +42,7 @@ Menu → **Install Sudoers Rule…** → enter your password in the system dialo
 | Menu item | Meaning |
 |---|---|
 | Keep Awake with Lid Closed | Checkmark item; click to toggle. The menu bar icon is a laptop normally and a coffee cup while awake. A laptop with a warning badge means the app could not read the sleep setting. |
-| On AC power / On battery — … | Power source. On battery, Keep Awake runs the Mac down to empty, so the line says so in both states. |
+| On AC power / On battery (42%) — … | Power source and charge. On battery, Keep Awake switches itself off when the charge reaches 10%, so normal sleep is back before the battery is empty; a line at the top of the menu says so afterwards. If you switch it back on below 10%, that is respected until you plug in. |
 | Launch at Login | Registers the app as a macOS login item. If macOS asks for approval, a line under the item points you to System Settings › Login Items. Keep the app in /Applications so the registered path stays valid. |
 | Stay Awake After Quit | By default quitting the app restores normal sleep. Tick this to leave the flag on. |
 | Remove Sudoers Rule… | Restores normal sleep and deletes `/etc/sudoers.d/closelid`. The password dialog tells you when this will also switch you back to normal sleep. |
@@ -54,7 +54,8 @@ actually reports. If the app crashes while Awake, the flag stays on (macOS
 persists it); relaunching shows the true state so you can switch it off.
 
 **Keep Awake does not survive a quit.** Unless *Stay Awake After Quit* is ticked,
-quitting the app — including at logout or a restart — switches sleep back to normal.
+quitting the app — including at logout or a restart — switches sleep back to normal
+(also when the app cannot read the current setting at that moment).
 Launching the app does *not* turn Keep Awake back on; it only shows you the current
 state. So after any relaunch, check the menu bar icon before you close the lid: a
 coffee cup means awake, a laptop means it will sleep.
@@ -86,7 +87,7 @@ the app's own log to see whether the flag was really on at that moment.
 ## Caveats
 
 - A closed MacBook on a soft surface can run hot. Leave it on a hard surface.
-- On battery, Awake mode drains until forced shutdown. Plug in.
+- On battery, Awake mode drains the battery to 10% and then switches itself off, restoring normal sleep. Your agents stop being protected at that point, so plug in for long runs. The check runs about every 20 seconds while the app is running; if the app has quit with *Stay Awake After Quit* ticked, nothing is watching the battery.
 
 ## Verify on your MacBook
 

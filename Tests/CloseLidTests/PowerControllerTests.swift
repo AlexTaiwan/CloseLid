@@ -45,6 +45,19 @@ final class PowerControllerTests: XCTestCase {
         XCTAssertEqual(snap, PmsetSnapshot(sleepDisabled: true, powerSource: .battery))
     }
 
+    func testProbeReportsBatteryPercent() throws {
+        enqueueProbe(settings: settingsAwake,
+                     batt: "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1234)\t42%; discharging; 3:00 remaining present: true\n")
+        let snap = try sut.probe()
+        XCTAssertEqual(snap, PmsetSnapshot(sleepDisabled: true, powerSource: .battery, batteryPercent: 42))
+    }
+
+    func testProbeBatteryFailureLeavesPercentNil() throws {
+        shell.enqueue(PowerCommand.probeSettings, stdout: settingsAwake)
+        shell.enqueue(PowerCommand.probeBattery, status: 1, stdout: " -InternalBattery-0 (id=1234)\t42%; discharging\n")
+        XCTAssertNil(try sut.probe().batteryPercent)
+    }
+
     func testProbeSyncsAssertionToSystemState() throws {
         enqueueProbe(settings: settingsAwake, batt: battAC)
         _ = try sut.probe()

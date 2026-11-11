@@ -13,6 +13,9 @@ enum PowerSource: Equatable {
 struct PmsetSnapshot: Equatable {
     var sleepDisabled: Bool?
     var powerSource: PowerSource
+    /// Internal battery charge, 0...100. `nil` when unknown or there is no battery.
+    /// Defaulted so `PmsetSnapshot(sleepDisabled:powerSource:)` keeps compiling.
+    var batteryPercent: Int? = nil
 
     var mode: PowerMode {
         switch sleepDisabled {
